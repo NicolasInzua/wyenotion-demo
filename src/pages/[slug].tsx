@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useChannel } from '@/hooks/useChannel';
 import { TextEditor } from '@/components/SlateEditor/TextEditor';
 import { type EditorHandle } from '@/components/SlateEditor/TextEditor';
@@ -10,15 +10,16 @@ import type {
 import { ApiError, api } from '@/services/api';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
+import { useUser } from '@/contexts/UserContext';
 
 export default function Home({
   slug,
   pageContent,
 }: InferGetServerSidePropsType<typeof getServerSideProps>) {
+  const { username } = useUser();
   const handleRef = useRef<EditorHandle>(null);
 
   const [currentUserNames, setCurrentUserNames] = useState<string[]>([]);
-  const username = useMemo(() => `user-${crypto.randomUUID()}`, []);
 
   const onMessage = useCallback((event: string, payload: unknown) => {
     const objPayload = payload as object;
@@ -27,6 +28,15 @@ export default function Home({
     if (event === 'y_update_broadcasted' && 'serialized_update' in objPayload) {
       handleRef.current?.applyUpdate(objPayload.serialized_update as string);
     }
+
+    if (
+      event === 'awareness_update_broadcasted' &&
+      'serialized_update' in objPayload
+    ) {
+      handleRef.current?.applyAwarenessUpdate(
+        objPayload.serialized_update as string
+      );
+    }
   }, []);
 
   const { pushChannelEvent } = useChannel(`page:${slug}`, {
@@ -34,8 +44,8 @@ export default function Home({
     onMessage,
   });
 
-  const onUpdate = (update: unknown) => {
-    pushChannelEvent('y_update', `${update}`);
+  const onUpdate = (event: string, update: unknown) => {
+    pushChannelEvent(event, `${update}`);
   };
 
   return (
@@ -45,6 +55,7 @@ export default function Home({
       </div>
       <TextEditor
         initialContent={pageContent}
+        currentUser={username}
         handleRef={handleRef}
         onUpdate={onUpdate}
       />
@@ -56,10 +67,9 @@ export async function getServerSideProps({ query }: GetServerSidePropsContext) {
   const slug = query.slug as string;
 
   try {
-    const [pageContent, pageList] = await Promise.all([
-      api.fetchPageContent(slug),
-      api.fetchPageList(),
-    ]);
+    const pageList = await api.fetchPageList();
+    const pageContent = await api.fetchPageContent(slug).catch(() => null);
+
     return {
       props: {
         slug,
@@ -88,15 +98,14 @@ const HomeSideBarContent = ({ content }: { content: string[] }) => {
       <nav>
         <ul className="flex flex-col overflow-y-auto max-h-[500px] gap-1">
           {sortedContent.map((page) => (
-            <li
-              key={page}
-              className="rounded-md hover:bg-slate-200 px-4 py-1 selected:bg-neutral-200 selected:hover:bg-slate-300"
-              data-selected={activeItem === page}
-            >
-              <Link href={`/${page}`}>
+            <Link key={page} href={`/${page}`}>
+              <li
+                className="rounded-md hover:bg-slate-200 px-4 py-1 selected:bg-neutral-200 selected:hover:bg-slate-300"
+                data-selected={activeItem === page}
+              >
                 <span className="text-m font-medium">{page}</span>
-              </Link>
-            </li>
+              </li>
+            </Link>
           ))}
         </ul>
       </nav>
